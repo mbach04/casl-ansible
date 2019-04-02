@@ -27,10 +27,6 @@ Parameters:
     Default: "m4.xlarge"
     Description: "The instance type to be used"
     Type: "String"
-  EtcdInstanceType:
-    Default: "m4.xlarge"
-    Description: "The instance type to be used"
-    Type: "String"
   NodesInstanceType:
     Default: "m4.xlarge"
     Description: "The instance type to be used"
@@ -53,22 +49,8 @@ Parameters:
     Type: "String"
 Resources:
 {# Figure out the node types with more zones to create all the required SubNets per AZ #}
-  {% if (aws_masters_zones.__len__() >= aws_etcd_zones.__len__()) and (aws_masters_zones.__len__() >= aws_appnodes_zones.__len__()) and (aws_masters_zones.__len__() >= aws_infranodes_zones.__len__()) and (aws_masters_zones.__len__() >= aws_cnsnodes_zones.__len__()) -%}
-    {% set numzones = aws_masters_zones.__len__() -%}
-    {% set zones = aws_masters_zones -%}
-  {% elif (aws_etcd_zones.__len__() >= aws_masters_zones.__len__()) and (aws_etcd_zones.__len__() >= aws_appnodes_zones.__len__()) and (aws_etcd_zones.__len__() >= aws_infranodes_zones.__len__()) and (aws_masters_zones.__len__() >= aws_cnsnodes_zones.__len__()) -%}
-    {% set numzones = aws_etcd_zones.__len__() -%}
-    {% set zones = aws_etcd_zones -%}
-  {% elif (aws_appnodes_zones.__len__() >= aws_masters_zones.__len__()) and (aws_appnodes_zones.__len__() >= aws_etcd_zones.__len__()) and (aws_appnodes_zones.__len__() >= aws_infranodes_zones.__len__()) and (aws_masters_zones.__len__() >= aws_cnsnodes_zones.__len__()) -%}
-    {% set numzones = aws_appnodes_zones.__len__() -%}
-    {% set zones = aws_appnodes_zones -%}
-  {% elif (aws_infranodes_zones.__len__() >= aws_masters_zones.__len__()) and (aws_infranodes_zones.__len__() >= aws_etcd_zones.__len__()) and (aws_infranodes_zones.__len__() >= aws_appnodes_zones.__len__()) and (aws_infranodes_zones.__len__() >= aws_cnsnodes_zones.__len__()) -%}
-    {% set numzones = aws_infranodes_zones.__len__() -%}
-    {% set zones = aws_infranodes_zones -%}
-  {% else -%}
-    {% set numzones = aws_cnsnodes_zones.__len__() -%}
-    {% set zones = aws_cnsnodes_zones -%}
-  {% endif -%}
+  {% set numzones = aws_cnsnodes_zones.__len__() -%}
+  {% set zones = aws_cnsnodes_zones -%}
   {% if aws_create_vpc -%}
   VPC:
     Type: "AWS::EC2::VPC"
@@ -282,29 +264,6 @@ Resources:
       Tags:
       - Key: 'Name'
         Value: '{{ env_id }}'
-  etcdsg:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupName: ocp-etcd
-      GroupDescription: ETCD Nodes Security Group
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-      - IpProtocol: tcp
-        FromPort: '2379'
-        ToPort: '2379'
-        CidrIp: 0.0.0.0/0
-      - IpProtocol: tcp
-        FromPort: '2380'
-        ToPort: '2380'
-        CidrIp: 0.0.0.0/0
-      SecurityGroupEgress:
-      - IpProtocol: tcp
-        FromPort: '0'
-        ToPort: '65535'
-        CidrIp: 0.0.0.0/0
-      Tags:
-      - Key: 'Name'
-        Value: '{{ env_id }}'
   cnssg:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -395,46 +354,6 @@ Resources:
             VolumeType: "gp2"
             DeleteOnTermination: "true"
             VolumeSize: "{{ master_docker_volume_size }}"
-{% endfor %}
-{% for idx in range(0, aws_num_etcd | int) %}
-{% set zone = aws_etcd_zones[ (idx % aws_etcd_zones.__len__())] %}
-{% set zoneidx = (idx % aws_etcd_zones.__len__()) + 1 %}
-  ETCD{{ '%02d' % idx }}:
-    Type: "AWS::EC2::Instance"
-    Properties:
-      ImageId: !Ref Image
-      KeyName: !Ref KeyPairName
-      InstanceType: !Ref EtcdInstanceType
-      SubnetId: !Ref SubnetAZ{{ zoneidx }}
-      SecurityGroupIds:
-        - !GetAtt etcdsg.GroupId
-        - !GetAtt nodesg.GroupId
-        - !GetAtt sshsg.GroupId
-      Tags:
-        - Key: 'Name'
-          Value: '{{ aws_etcd_name_prefix }}-{{ idx }}.{{ env_id }}.{{ dns_domain }}'
-        - Key: 'ocp_role'
-          Value: 'etcd'
-        - Key: 'env_id'
-          Value: '{{ env_id }}'
-        - Key: 'group'
-          Value: '{{ group_etcd_nodes_tag }}'
-        - Key: 'node_labels'
-          Value: '{{ labels_etcd_nodes_tag }}'
-        - Key: 'kubernetes.io/cluster/cluster-{{ env_id }}'
-          Value: '{{ env_id }}'
-      AvailabilityZone: {{ zone }}
-      BlockDeviceMappings:
-        - DeviceName: "{{ etcd_root_volume }}"
-          Ebs:
-            VolumeType: "gp2"
-            DeleteOnTermination: "true"
-            VolumeSize: "{{ etcd_root_volume_size }}"
-        - DeviceName: "{{ docker_storage_block_device }}"
-          Ebs:
-            VolumeType: "gp2"
-            DeleteOnTermination: "true"
-            VolumeSize: "{{ etcd_docker_volume_size }}"
 {% endfor %}
 {% for idx in range(0, aws_num_infra_nodes | int) %}
 {% set zone = aws_infranodes_zones[ (idx % aws_infranodes_zones.__len__())] %}
@@ -681,9 +600,6 @@ Resources:
     {% for idx in range(0, aws_num_app_nodes | int) -%}
     - Node{{ '%02d' % idx }}
     {% endfor -%}
-    {% for idx in range(0, aws_num_etcd | int) -%}
-    - ETCD{{ '%02d' % idx }}
-    {% endfor -%}
     Properties:
       HostedZoneName: "{{ env_id }}.{{ dns_domain }}."
       RecordSets:
@@ -715,13 +631,6 @@ Resources:
         ResourceRecords:
          - !GetAtt Node{{ '%02d' % idx }}.PrivateDnsName
       {% endfor -%}
-      {% for idx in range(0, aws_num_etcd | int) -%}
-      - Name: "etcd-{{ idx }}.{{ env_id }}.{{ dns_domain }}."
-        Type: CNAME
-        TTL: 300
-        ResourceRecords:
-         - !GetAtt ETCD{{ '%02d' % idx }}.PrivateDnsName
-      {% endfor -%}
       - Name: "{{ openshift_master_cluster_public_hostname }}."
         Type: A
         AliasTarget:
@@ -751,9 +660,6 @@ Resources:
     {% endfor -%}
     {% for idx in range(0, aws_num_app_nodes | int) -%}
     - Node{{ '%02d' % idx }}
-    {% endfor -%}
-    {% for idx in range(0, aws_num_etcd | int) -%}
-    - ETCD{{ '%02d' % idx }}
     {% endfor -%}
     Properties:
       HostedZoneName: "{{ dns_domain }}."
@@ -785,11 +691,4 @@ Resources:
         TTL: 300
         ResourceRecords:
         - !GetAtt Node{{ '%02d' % idx }}.PublicDnsName
-      {% endfor -%}
-      {% for idx in range(0, aws_num_etcd | int) -%}
-      - Name: "etcd-{{ idx }}.{{ env_id }}.{{ dns_domain }}."
-        Type: CNAME
-        TTL: 300
-        ResourceRecords:
-        - !GetAtt ETCD{{ '%02d' % idx }}.PublicDnsName
       {% endfor -%}

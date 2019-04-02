@@ -13,7 +13,7 @@
       Image: "{{ cloud_infrastructure.image_name }}"
       KeyPairName: "{{ aws_key_name }}"
       MasterInstanceType: "{{ master_flavor }}"
-      EtcdInstanceType: "{{ etcd_flavor }}"
+      # EtcdInstanceType: "{{ etcd_flavor }}"
       NodesInstanceType: "{{ app_node_flavor }}"
       InfraInstanceType: "{{ infra_node_flavor }}"
       CNSInstanceType: "{{ cns_node_flavor }}"
